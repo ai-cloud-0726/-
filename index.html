@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>五子棋技能大作业</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="scoreboard" aria-label="总记分牌">
+        <div class="score-item">
+          黑方胜 <span id="scoreBlack">0</span>
+        </div>
+        <div class="score-item">
+          白方胜 <span id="scoreWhite">0</span>
+        </div>
+        <div class="score-item">
+          平局 <span id="scoreDraw">0</span>
+        </div>
+      </header>
+      <main class="main-area">
+        <aside class="player-panel" data-player="black">
+          <div class="panel-header">
+            <div class="avatar-wrapper">
+              <img class="avatar" data-player-avatar="black" alt="黑方头像" />
+              <button class="avatar-change" data-action="change-avatar" data-player="black" aria-label="更换黑方头像">换头像</button>
+            </div>
+            <div class="name-wrapper">
+              <span class="player-name" data-player-name="black" contenteditable="true" role="textbox" aria-label="编辑黑方昵称"></span>
+              <span class="role-label">黑方</span>
+            </div>
+          </div>
+          <div class="round-score">本局得分：<span data-round-score="black">0</span></div>
+          <div class="skill-bar" data-player-skillbar="black" aria-label="黑方技能栏">
+            <div class="skill-slot" data-slot-index="0" data-player="black">
+              <button class="discard" aria-label="舍弃技能" data-action="discard">×</button>
+              <div class="skill-icon" data-skill-icon></div>
+            </div>
+            <div class="skill-slot" data-slot-index="1" data-player="black">
+              <button class="discard" aria-label="舍弃技能" data-action="discard">×</button>
+              <div class="skill-icon" data-skill-icon></div>
+            </div>
+            <div class="skill-slot" data-slot-index="2" data-player="black">
+              <button class="discard" aria-label="舍弃技能" data-action="discard">×</button>
+              <div class="skill-icon" data-skill-icon></div>
+            </div>
+          </div>
+          <div class="shield-prompt" data-shield-prompt="black" aria-hidden="true">
+            <div class="prompt-text">对方发动技能，是否使用“无懈可击”？</div>
+            <div class="prompt-actions">
+              <button data-action="shield-confirm">使用</button>
+              <button data-action="shield-decline">不用</button>
+            </div>
+          </div>
+        </aside>
+        <section class="board-section">
+          <div class="board-container">
+            <div class="turn-banner" id="turnBanner" aria-live="polite"></div>
+            <div class="board" id="board" role="grid" aria-label="15乘15五子棋棋盘"></div>
+            <button class="start-button" id="startButton">开始游戏</button>
+            <div class="board-overlay" id="boardOverlay" aria-hidden="true"></div>
+          </div>
+        </section>
+        <aside class="player-panel" data-player="white">
+          <div class="panel-header">
+            <div class="avatar-wrapper">
+              <img class="avatar" data-player-avatar="white" alt="白方头像" />
+              <button class="avatar-change" data-action="change-avatar" data-player="white" aria-label="更换白方头像">换头像</button>
+            </div>
+            <div class="name-wrapper">
+              <span class="player-name" data-player-name="white" contenteditable="true" role="textbox" aria-label="编辑白方昵称"></span>
+              <span class="role-label">白方</span>
+            </div>
+          </div>
+          <div class="round-score">本局得分：<span data-round-score="white">0</span></div>
+          <div class="skill-bar" data-player-skillbar="white" aria-label="白方技能栏">
+            <div class="skill-slot" data-slot-index="0" data-player="white">
+              <button class="discard" aria-label="舍弃技能" data-action="discard">×</button>
+              <div class="skill-icon" data-skill-icon></div>
+            </div>
+            <div class="skill-slot" data-slot-index="1" data-player="white">
+              <button class="discard" aria-label="舍弃技能" data-action="discard">×</button>
+              <div class="skill-icon" data-skill-icon></div>
+            </div>
+            <div class="skill-slot" data-slot-index="2" data-player="white">
+              <button class="discard" aria-label="舍弃技能" data-action="discard">×</button>
+              <div class="skill-icon" data-skill-icon></div>
+            </div>
+          </div>
+          <div class="shield-prompt" data-shield-prompt="white" aria-hidden="true">
+            <div class="prompt-text">对方发动技能，是否使用“无懈可击”？</div>
+            <div class="prompt-actions">
+              <button data-action="shield-confirm">使用</button>
+              <button data-action="shield-decline">不用</button>
+            </div>
+          </div>
+        </aside>
+      </main>
+      <div class="animations-layer" id="animationsLayer" aria-hidden="true"></div>
+    </div>
+    <script type="module" src="script.js"></script>
+  </body>
+</html>
