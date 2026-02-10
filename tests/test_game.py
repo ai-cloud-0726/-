@@ -1,6 +1,6 @@
 import random
 
-from gomoku.constants import WHITE
+from gomoku.constants import EMPTY, WHITE
 from gomoku.game import Game
 from gomoku.skills import SKILL_BY_ID
 
@@ -61,3 +61,42 @@ def test_shield_blocks_skill():
     assert not defender.has_shield()
     assert blocked == ["swap"]
     assert game.current_player is defender
+
+
+def test_shift_pushes_chain_toward_attacker():
+    game = make_game()
+    game.start_round()
+
+    attacker = game.current_player
+    defender = game.get_opponent(attacker)
+
+    attacker.skills = [SKILL_BY_ID["shift"], None, None]
+    defender.skills = [None, None, None]
+
+    # Two defender stones stacked with an empty cell in front of them
+    game.board.set(7, 7, defender.color)
+    game.board.set(6, 7, defender.color)
+
+    game.use_skill(0)
+
+    assert game.board.get(7, 7) == EMPTY
+    assert game.board.get(6, 7) == defender.color
+    assert game.board.get(5, 7) == defender.color
+
+
+def test_shift_respects_board_edge():
+    game = make_game()
+    game.start_round()
+
+    attacker = game.current_player
+    defender = game.get_opponent(attacker)
+
+    attacker.skills = [SKILL_BY_ID["shift"], None, None]
+    defender.skills = [None, None, None]
+
+    # Stone already at the board edge cannot move further.
+    game.board.set(0, 3, defender.color)
+
+    game.use_skill(0)
+
+    assert game.board.get(0, 3) == defender.color

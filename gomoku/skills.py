@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -61,32 +60,32 @@ def _invert_stone(
 
 def _shift_line(game: "Game", user: "PlayerState") -> SkillOutcome:
     opponent = game.get_opponent(user)
-    stones = list(game.board.occupied())
-    enemy_positions = [pos for pos in stones if game.board.get(*pos) == opponent.color]
+    enemy_positions = [pos for pos in game.board.occupied() if game.board.get(*pos) == opponent.color]
     if not enemy_positions:
         raise ValueError("Opponent has no stones to shift")
-    random.shuffle(enemy_positions)
-    moved: List[Coordinate] = []
+
     direction = -1 if user.color == BLACK else 1
-    for row, col in enemy_positions[:3]:
-        target_row = row
-        while True:
-            next_row = target_row + direction
-            if not game.board.inside(next_row, col):
-                break
-            if game.board.is_empty(next_row, col):
-                game.board.set(next_row, col, opponent.color)
-                game.board.set(row, col, EMPTY)
-                moved.extend([(row, col), (next_row, col)])
-                break
-            target_row = next_row
-        else:
+    candidates = enemy_positions[:]
+    game.rng.shuffle(candidates)
+    selected = candidates[:3]
+    # Process stones nearest to the travel direction first to avoid double-shifting
+    selected.sort(key=lambda pos: pos[0], reverse=direction > 0)
+
+    moved: List[Coordinate] = []
+    moved_count = 0
+    for row, col in selected:
+        if game.board.get(row, col) != opponent.color:
             continue
+        path = _slide_stone_chain(game.board, (row, col), direction)
+        if path:
+            moved.extend(path)
+            moved_count += 1
+
     if not moved:
         return f"{user.name} tried to shift stones but nothing moved", []
-    # Deduplicate coordinates for follow-up checks
+
     unique_positions = list(dict.fromkeys(moved))
-    return f"{user.name} shifted {len(moved) // 2} stones", unique_positions
+    return f"{user.name} shifted {moved_count} stones", unique_positions
 
 
 def _swap_random(game: "Game", user: "PlayerState") -> SkillOutcome:
@@ -94,7 +93,7 @@ def _swap_random(game: "Game", user: "PlayerState") -> SkillOutcome:
     stones = [pos for pos in game.board.occupied() if game.board.get(*pos) == opponent.color]
     if not stones:
         raise ValueError("Opponent has no stones to swap")
-    row, col = random.choice(stones)
+    row, col = game.rng.choice(stones)
     game.board.set(row, col, user.color)
     return f"{user.name} swapped a random stone at ({row}, {col})", [(row, col)]
 
@@ -136,3 +135,33 @@ SKILL_LIBRARY: Tuple[SkillDefinition, ...] = (
 
 
 SKILL_BY_ID: Dict[str, SkillDefinition] = {skill.id: skill for skill in SKILL_LIBRARY}
+
+
+def _slide_stone_chain(board: "Board", start: Coordinate, direction: int) -> List[Coordinate]:
+    """Shift a chain of stones one step toward the given direction.
+
+    Returns the list of coordinates affected (including the start position) if a move
+    occurred, otherwise an empty list.
+    """
+
+    row, col = start
+    path: List[Coordinate] = []
+    current_row = row
+
+    while True:
+        next_row = current_row + direction
+        if not board.inside(next_row, col):
+            return []
+        path.append((next_row, col))
+        if board.is_empty(next_row, col):
+            break
+        current_row = next_row
+
+    carry_color = board.get(row, col)
+    for dest_row, dest_col in path:
+        next_carry = board.get(dest_row, dest_col)
+        board.set(dest_row, dest_col, carry_color)
+        carry_color = next_carry
+
+    board.set(row, col, EMPTY)
+    return [start, *path]
