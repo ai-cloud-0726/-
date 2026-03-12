@@ -3,3 +3,6 @@ __pycache__/
 
 snapshots/*
 !snapshots/.gitkeep
+runtime/model_cache/
+runtime/model_prompt_trace.jsonl
+runtime/model_response_trace.jsonl

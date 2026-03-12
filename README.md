@@ -31,7 +31,7 @@
   - 危险命令黑名单
   - 权限分级（L1-L4，默认 L2）
   - 自修改补丁白名单
-- `models.json`：大模型配置
+- `models.json`：大模型完整配置（active_profile、profiles、provider、endpoint、headers、key 环境变量、重试超时、模型路径/trace 路径）
 
 ## 关键数据文件
 
