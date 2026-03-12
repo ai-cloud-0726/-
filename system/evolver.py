@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -15,7 +15,7 @@ class Evolver:
         self.snapshots_dir = Path(config["paths"]["snapshots_dir"])
 
     def create_snapshot(self, label: str) -> Dict[str, Any]:
-        ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         target = self.snapshots_dir / f"{ts}_{label}"
         target.mkdir(parents=True, exist_ok=True)
         for item in ["main.py", "claw.py", "system", "prompts", "config.json", "models.json"]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Dict, List
 
@@ -63,7 +63,7 @@ class ClawEngine:
                     error_type=execution.get("error_type", "EvaluationError"),
                     related_output=execution.get("output", ""),
                     round_index=step,
-                    timestamp=datetime.utcnow().isoformat() + "Z",
+                    timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 )
                 tried_methods.append(error_record.failed_method)
                 self.memory.add_error_memory(error_record.__dict__)

@@ -61,9 +61,9 @@ python main.py --dashboard
 # 对话模式命令
 # 直接输入目标: 执行任务
 # :resume <goal> : 基于历史状态续跑
-# :benchmark     : 运行基准
-# :dashboard     : 查看仪表盘
-# :exit          : 退出
+# benchmark 或 :benchmark : 运行基准
+# dashboard 或 :dashboard : 查看仪表盘
+# exit 或 :exit          : 退出
 ```
 
 ## 三类扩展能力

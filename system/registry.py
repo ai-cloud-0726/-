@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -45,7 +45,7 @@ class AbilityRegistry:
             "recent_failures": [],
             "enabled": True,
             "tested": False,
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         records = [r for r in records if r.get("name") != name] + [record]
         self.memory.save_registry(records)

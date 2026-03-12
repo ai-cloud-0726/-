@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -30,7 +30,7 @@ class PromptManager:
         record = {
             "version": len(versions) + 1,
             "reason": reason,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "old_length": len(old_text),
             "new_length": len(new_text),
         }

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
 class GoalManager:
     def initialize(self, goal: str) -> Dict[str, Any]:
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return {
             "main_goal": goal,
             "success_criteria": [
@@ -28,7 +28,7 @@ class GoalManager:
         goal_state["current_blocker"] = blocker
         goal_state["last_failure_reason"] = last_failure
         goal_state["next_action"] = next_action
-        goal_state["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        goal_state["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return goal_state
 
     def mark_done(self, goal_state: Dict[str, Any], subgoal_id: str, result: str) -> Dict[str, Any]:
@@ -37,5 +37,5 @@ class GoalManager:
             if g.get("id") == subgoal_id:
                 g["status"] = "done"
                 g["result"] = result
-        goal_state["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        goal_state["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return goal_state

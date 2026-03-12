@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -11,7 +11,7 @@ def new_session_id() -> str:
 
 
 def build_initial_state(goal: str, session_id: str) -> Dict[str, Any]:
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return {
         "session_id": session_id,
         "goal": goal,

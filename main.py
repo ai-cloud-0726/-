@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -13,6 +13,10 @@ from system.evolver import Evolver
 from system.memory import MemoryStore
 from system.reflector import Reflector
 from system.types import TaskStatus
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def load_json(path: str) -> Dict[str, Any]:
@@ -79,13 +83,13 @@ def run(goal: str, resume: bool = False) -> Dict[str, Any]:
 
         if result.status == TaskStatus.SUCCESS:
             state["current_status"] = TaskStatus.SUCCESS.value
-            state["end_time"] = datetime.utcnow().isoformat() + "Z"
+            state["end_time"] = _utc_now_iso()
             break
 
         if result.status == TaskStatus.NEED_RESTART:
             if state["restart_count"] >= controls["max_restarts"]:
                 state["current_status"] = TaskStatus.FAILURE.value
-                state["end_time"] = datetime.utcnow().isoformat() + "Z"
+                state["end_time"] = _utc_now_iso()
                 break
             state["restart_count"] += 1
             carry_context = result.carried_context
@@ -100,11 +104,11 @@ def run(goal: str, resume: bool = False) -> Dict[str, Any]:
             continue
 
         state["current_status"] = result.status.value
-        state["end_time"] = datetime.utcnow().isoformat() + "Z"
+        state["end_time"] = _utc_now_iso()
         break
     else:
         state["current_status"] = TaskStatus.FAILURE.value
-        state["end_time"] = datetime.utcnow().isoformat() + "Z"
+        state["end_time"] = _utc_now_iso()
 
     if state["current_status"] in {TaskStatus.FAILURE.value, TaskStatus.BLOCKED.value}:
         rollback_result = evolver.rollback_latest()
@@ -195,7 +199,10 @@ def main() -> None:
         print(json.dumps(final_state, ensure_ascii=False, indent=2))
         print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
 
-    print("进入对话模式。输入任务目标并回车执行；输入 :benchmark 运行基准；输入 :dashboard 查看仪表盘；输入 :exit 退出。")
+    print(
+        "进入对话模式。输入任务目标并回车执行；输入 benchmark/:benchmark 运行基准；"
+        "输入 dashboard/:dashboard 查看仪表盘；输入 exit/:exit 退出。"
+    )
     while True:
         try:
             user_input = input("miniclaw> ").strip()
@@ -205,13 +212,14 @@ def main() -> None:
 
         if not user_input:
             continue
-        if user_input in {":exit", "exit", "quit", ":q"}:
+        cmd = user_input.lower()
+        if cmd in {":exit", "exit", "quit", ":q"}:
             print("已退出对话模式。")
             break
-        if user_input == ":benchmark":
+        if cmd in {":benchmark", "benchmark"}:
             print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
             continue
-        if user_input == ":dashboard":
+        if cmd in {":dashboard", "dashboard"}:
             print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
             continue
 

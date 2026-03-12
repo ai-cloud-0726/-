@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -27,8 +27,9 @@ class Improver:
         )
 
     def improvement_note(self, reason: str, tried: List[str]) -> str:
+        now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return (
             f"改进请求: reason={reason}; "
             f"avoid={','.join(tried[-3:]) if tried else 'none'}; "
-            f"at={datetime.utcnow().isoformat()}Z"
+            f"at={now_iso}"
         )
