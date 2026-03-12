@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -133,6 +134,22 @@ class ClockTask:
 
 def normalize_text(value: str) -> str:
     return (value or "").strip().lower()
+
+
+def contains_cjk(value: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", value or ""))
+
+
+def looks_like_shell_command(value: str) -> bool:
+    text = (value or "").strip()
+    if not text:
+        return False
+    shell_prefixes = ("./", "../", "/", "python", "pip", "git", "ls", "dir", "cd", "echo", "cat", "type", "cp", "mv", "rm", "del", "mkdir", "curl", "wget", "powershell", "cmd")
+    shell_tokens = ["&&", "||", "|", ">", "<", "*", "=", "--", "-", ".py", ".sh", ".bat", "\\"]
+    lower = text.lower()
+    if lower.startswith(shell_prefixes):
+        return True
+    return any(tok in text for tok in shell_tokens)
 
 
 class JsonStore:
@@ -503,8 +520,13 @@ class MiniClawEngine:
 
     def _select_execution_strategy(self, command: str) -> str:
         # 11. 优先已有能力 -> 工具 -> 新能力
-        if command.startswith(("help", "goal ", "add_skill ", "cleanup_skills", "clock ", "skills", "models")):
+        if command.startswith(("help", "goal ", "add_skill ", "cleanup_skills", "clock ", "skills", "models", "chat ")):
             return "builtin:internal"
+
+        # 自然语言优先走 LLM 对话，不误入 shell
+        if contains_cjk(command) and not looks_like_shell_command(command):
+            return "builtin:chat"
+
         for s in self.skills.list_skills():
             if s.get("name") in {"help", "run_shell"}:
                 continue
@@ -512,6 +534,15 @@ class MiniClawEngine:
             if kw and kw in command:
                 return f"skill:{s.get('name')}"
         return "builtin:run_shell"
+
+    def _handle_chat_command(self, command: str) -> str:
+        prompt = command
+        if command.startswith("chat "):
+            prompt = command[5:].strip()
+        if not prompt:
+            return "请输入要咨询的内容，例如：chat 帮我总结今天计划"
+        answer = self.models.call_by_role("text", prompt)
+        return f"[chat] {answer}"
 
     def _handle_internal_command(self, command: str) -> Optional[str]:
         if command == "help":
@@ -547,6 +578,8 @@ class MiniClawEngine:
             return json.dumps(self.skills.list_skills(), ensure_ascii=False, indent=2)
         if command == "models":
             return json.dumps(self.config_store.load().get("models", {}), ensure_ascii=False, indent=2)
+        if command.startswith("chat "):
+            return self._handle_chat_command(command)
         if command.startswith("clock "):
             return self._handle_clock_command(command)
         return None
@@ -612,6 +645,13 @@ class MiniClawEngine:
                 self.skills.mark_used("help", True)
                 continue
 
+            if strategy == "builtin:chat":
+                msg = self._handle_chat_command(command)
+                self._append_context(msg)
+                self.wechat.send_feedback(msg)
+                self.skills.mark_used("help", True)
+                continue
+
             st = self.state_store.load()
             st["running_task"] = {"command": command, "source": source, "started_at": datetime.now().isoformat()}
             self.state_store.save(st)
@@ -663,6 +703,7 @@ class MiniClawEngine:
                 "goal <目标>",
                 "skills",
                 "models",
+                "chat <问题>",
                 "add_skill name|desc|usage|method|trigger",
                 "cleanup_skills",
                 "clock list",

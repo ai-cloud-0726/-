@@ -51,6 +51,12 @@ class MiniClawTests(unittest.TestCase):
         self.assertIn("commands", data)
         self.assertIn("help", data["commands"])
 
+    def test_natural_language_routes_to_chat(self):
+        strategy = self.engine._select_execution_strategy("回答侧色")
+        self.assertEqual(strategy, "builtin:chat")
+        msg = self.engine._handle_chat_command("回答侧色")
+        self.assertIn("[chat]", msg)
+
 
 if __name__ == "__main__":
     unittest.main()
