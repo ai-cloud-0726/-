@@ -166,7 +166,7 @@ def run_benchmarks() -> Dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Main controller for controllable self-evolving claw system")
-    parser.add_argument("goal", nargs="?", default="", help="User original goal")
+    parser.add_argument("goal", nargs="?", default="", help="User original goal (optional in chat mode)")
     parser.add_argument("--resume", action="store_true", help="Resume previous runtime state")
     parser.add_argument("--benchmark", action="store_true", help="Run benchmark set")
     args = parser.parse_args()
@@ -175,11 +175,39 @@ def main() -> None:
         print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
         return
 
-    if not args.goal:
-        raise SystemExit("goal is required unless --benchmark is used")
+    # If goal is provided, execute once then enter chat mode.
+    if args.goal:
+        final_state = run(args.goal, resume=args.resume)
+        print(json.dumps(final_state, ensure_ascii=False, indent=2))
 
-    final_state = run(args.goal, resume=args.resume)
-    print(json.dumps(final_state, ensure_ascii=False, indent=2))
+    print("进入对话模式。输入任务目标并回车执行；输入 :benchmark 运行基准；输入 :exit 退出。")
+    while True:
+        try:
+            user_input = input("miniclaw> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已退出对话模式。")
+            break
+
+        if not user_input:
+            continue
+        if user_input in {":exit", "exit", "quit", ":q"}:
+            print("已退出对话模式。")
+            break
+        if user_input == ":benchmark":
+            print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
+            continue
+
+        resume = False
+        goal = user_input
+        if user_input.startswith(":resume "):
+            resume = True
+            goal = user_input[len(":resume ") :].strip()
+            if not goal:
+                print("用法: :resume <goal>")
+                continue
+
+        final_state = run(goal, resume=resume)
+        print(json.dumps(final_state, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

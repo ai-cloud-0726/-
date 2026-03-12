@@ -52,9 +52,15 @@
 ## 运行
 
 ```bash
+python main.py
 python main.py "你的目标"
-python main.py "你的目标" --resume
 python main.py --benchmark
+
+# 对话模式命令
+# 直接输入目标: 执行任务
+# :resume <goal> : 基于历史状态续跑
+# :benchmark     : 运行基准
+# :exit          : 退出
 ```
 
 ## 三类扩展能力
