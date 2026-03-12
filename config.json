@@ -1,0 +1,38 @@
+{
+  "models_file": "models.json",
+  "paths": {
+    "logs_dir": "data/logs",
+    "debug_dir": "data/debug",
+    "temp_dir": "data/temp",
+    "history_dir": "data/history",
+    "state_dir": "data/state",
+    "patch_dir": "data/patches",
+    "ability_dir": "data/abilities",
+    "prompt_dir": "data/prompts"
+  },
+  "limits": {
+    "max_steps": 8,
+    "max_recursions": 3,
+    "max_restarts": 2,
+    "max_same_error_repeats": 3,
+    "max_patch_per_task": 3,
+    "max_fail_attempts_per_task": 5,
+    "max_prompt_updates_per_task": 5
+  },
+  "dangerous_commands_blacklist": [
+    "rm -rf /",
+    "shutdown",
+    "reboot",
+    ":(){ :|:& };:",
+    "mkfs",
+    "dd if="
+  ],
+  "patch": {
+    "allowed_files": [
+      "claw.py",
+      "agent_system/executor/executor.py",
+      "agent_system/prompts/manager.py",
+      "agent_system/improver/improver.py"
+    ]
+  }
+}
