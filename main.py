@@ -1,140 +1,152 @@
 from __future__ import annotations
 
-import argparse
-import json
-import uuid
-from dataclasses import asdict
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List
+import sys
+from typing import List
 
-from agent_system.core.types import ClawInput, RuntimeState, TaskStatus
-from agent_system.memory.storage import Storage
-from claw import ClawEngine
+from gomoku.board import Board
+from gomoku.constants import BLACK, WHITE
+from gomoku.game import Game
+from gomoku.player import PlayerState
+from gomoku.skills import SkillDefinition
 
 
-def load_json(path: str) -> Dict[str, Any]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+def format_skills(player: PlayerState) -> str:
+    parts: List[str] = []
+    for idx, skill in enumerate(player.skills):
+        if skill is None:
+            parts.append(f"[{idx}] 空")
+        else:
+            suffix = "(被动)" if skill.reactive else ""
+            parts.append(f"[{idx}] {skill.name}{suffix}")
+    return "  ".join(parts)
 
 
-def apply_patch_requests(
-    patch_requests: List[Dict[str, Any]],
-    config: Dict[str, Any],
-    storage: Storage,
-    session_id: str,
-) -> List[Dict[str, Any]]:
-    whitelist = set(config["patch"]["allowed_files"])
-    applied = []
-    queue = []
-
-    for patch in patch_requests:
-        queue.append(patch)
-        target = patch.get("target", "")
-        if target not in whitelist:
-            applied.append({"target": target, "status": "rejected", "reason": "target not in whitelist"})
-            continue
-
-        applied.append({"target": target, "status": "accepted", "description": patch.get("description", "")})
-
-    storage.write_patch_queue(session_id, queue)
-    return applied
+def prompt_shield(defender: PlayerState, skill: SkillDefinition, attacker: PlayerState) -> bool:
+    while True:
+        print(
+            f"{defender.name} 拥有无懈可击。是否拦截 {attacker.name} 的 {skill.name}? (y/n)",
+            end=" ",
+        )
+        sys.stdout.flush()
+        choice = sys.stdin.readline().strip().lower()
+        if choice in {"y", "yes", "是", "使用"}:
+            return True
+        if choice in {"n", "no", "否", "不用"}:
+            return False
+        print("请输入 y 或 n。")
 
 
-def run_task(goal: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    storage = Storage(config)
-    engine = ClawEngine(config, storage)
+def print_board(board: Board) -> None:
+    print(board)
 
-    session_id = str(uuid.uuid4())
-    start_time = datetime.utcnow().isoformat()
 
-    state = RuntimeState(
-        session_id=session_id,
-        goal=goal,
-        max_steps=config["limits"]["max_steps"],
-        planned_steps=[
-            "Clarify objective and constraints",
-            "Attempt primary solution path",
-            "Validate against user goal and expected output",
-            "Produce final result with trace",
-        ],
+def print_status(game: Game) -> None:
+    print("=== 状态 ===")
+    print(f"当前轮到: {game.current_player.name} ({'黑' if game.current_player.color == BLACK else '白'})")
+    print(
+        f"比分: 黑方 {game.scoreboard.black_wins} 胜 / 白方 {game.scoreboard.white_wins} 胜 / 平局 {game.scoreboard.draws}"
     )
+    for player in game.players:
+        print(f"{player.name} 技能栏: {format_skills(player)}")
 
-    context: Dict[str, Any] = {"original_goal": goal, "session_level_context": []}
-    error_memory = []
-    final_output = None
 
-    for recursion in range(config["limits"]["max_recursions"]):
-        state.recursion_count = recursion
-        for _ in range(config["limits"]["max_restarts"] + 1):
-            claw_input = ClawInput(goal=goal, context=context, state=state, error_memory=error_memory)
-            output = engine.run(claw_input)
-
-            patch_results = apply_patch_requests(output.patch_requests, config, storage, session_id)
-            for rec in output.steps:
-                rec.patch_applied = patch_results[-1] if patch_results else None
-
-            state = output.state
-            error_memory = output.error_memory
-            storage.write_runtime_state(session_id, asdict(state))
-            storage.write_error_memory(session_id, error_memory)
-
-            if output.status in (TaskStatus.SUCCESS, TaskStatus.FAILURE, TaskStatus.BLOCKED):
-                final_output = output
-                break
-
-            if output.status == TaskStatus.RESTART_REQUIRED:
-                if state.restart_count >= config["limits"]["max_restarts"]:
-                    state.status = TaskStatus.BLOCKED
-                    final_output = output
-                    break
-                state.restart_count += 1
-                payload = output.restart_payload or {}
-                goal = payload.get("goal", goal)
-                context = payload.get("context", context)
-                context["restart_payload"] = payload
-                context["session_level_context"].append(
-                    {
-                        "restart": state.restart_count,
-                        "commands": payload.get("commands", []),
-                        "steps": payload.get("steps", []),
-                    }
-                )
-                continue
-
-        if final_output is not None:
-            break
-
-    end_time = datetime.utcnow().isoformat()
-    final_status = state.status.value
-    history_record = {
-        "session_id": session_id,
-        "goal": goal,
-        "rounds": state.step_count,
-        "restarts": state.restart_count,
-        "final_result": final_status,
-        "start_time": start_time,
-        "end_time": end_time,
-    }
-    storage.append_history(history_record)
-
-    return {
-        "session_id": session_id,
-        "status": final_status,
-        "steps": state.step_count,
-        "restarts": state.restart_count,
-        "last_result": state.last_result,
-    }
+def list_forbidden(game: Game) -> None:
+    points = game.board.list_forbidden_points()
+    if not points:
+        print("当前无禁手点。")
+        return
+    formatted = ", ".join(f"({r}, {c})" for r, c in points)
+    print(f"禁手点: {formatted}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Main controller for main+claw system")
-    parser.add_argument("goal", type=str, help="User original goal")
-    parser.add_argument("--config", default="config.json")
-    args = parser.parse_args()
-
-    config = load_json(args.config)
-    result = run_task(args.goal, config)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    game = Game(shield_prompt=prompt_shield)
+    print("五子棋技能对战 - Python 版")
+    print("输入 help 查看指令。")
+    while True:
+        try:
+            command = input("指令> ").strip()
+        except EOFError:
+            print()
+            break
+        if not command:
+            continue
+        if command == "help":
+            print("可用指令:")
+            print("  start                - 开始新的一局")
+            print("  move r c             - 在 (r, c) 落子")
+            print("  skill idx [r c]      - 使用技能，可选目标坐标")
+            print("  board                - 查看棋盘")
+            print("  status               - 查看比分和技能栏")
+            print("  forbidden            - 查看禁手点")
+            print("  log                  - 查看事件日志")
+            print("  quit                 - 退出")
+            continue
+        if command == "quit":
+            break
+        if command == "board":
+            print_board(game.board)
+            continue
+        if command == "status":
+            if not game.round_active:
+                print("请先 start 开局。")
+            print_status(game)
+            continue
+        if command == "forbidden":
+            list_forbidden(game)
+            continue
+        if command == "log":
+            for entry in game.log:
+                print(entry)
+            continue
+        if command == "start":
+            game.start_round()
+            print("新的一局开始，双方各获随机技能。")
+            print_status(game)
+            continue
+        if command.startswith("move"):
+            if not game.round_active:
+                print("请先 start 开局。")
+                continue
+            parts = command.split()
+            if len(parts) != 3:
+                print("格式: move 行 列")
+                continue
+            try:
+                row = int(parts[1])
+                col = int(parts[2])
+                game.place_stone(row, col)
+            except Exception as exc:
+                print(f"落子失败: {exc}")
+                continue
+            if game.round_active:
+                print_status(game)
+            else:
+                print("本局结束。输入 start 重新开始。")
+            continue
+        if command.startswith("skill"):
+            if not game.round_active:
+                print("请先 start 开局。")
+                continue
+            parts = command.split()
+            if len(parts) not in {2, 4}:
+                print("格式: skill 槽位 [行 列]")
+                continue
+            try:
+                slot = int(parts[1])
+                target = None
+                if len(parts) == 4:
+                    target = (int(parts[2]), int(parts[3]))
+                game.use_skill(slot, target)
+            except Exception as exc:
+                print(f"技能失败: {exc}")
+                continue
+            if game.round_active:
+                print_status(game)
+            else:
+                print("本局结束。输入 start 重新开始。")
+            continue
+        print("未知指令，输入 help 查看帮助。")
 
 
 if __name__ == "__main__":

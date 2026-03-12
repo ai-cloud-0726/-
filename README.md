@@ -1,48 +1,35 @@
-# Main + Claw 可控进化执行系统
+# 五子棋技能大作业
 
-该项目实现了一个由 `main`（总控）与 `claw`（执行核心）组成的 Python 系统，支持递归、重启、状态续传、错误记忆、补丁队列、能力沉淀、提示词版本化和完整日志/调试记录。
+本项目同时提供网页与 Python 命令行两个版本的技能五子棋体验。以下说明有助于快速预览与调试：
 
-## 目录结构
+## 快速预览
+1. 在项目根目录启动简易静态服务器，例如：
+   ```bash
+   python3 -m http.server 8000
+   ```
+2. 在浏览器中打开 [http://localhost:8000](http://localhost:8000)，即可看到主页。
+3. 点击中心的“开始游戏”按钮进入对局，技能栏会自动补发初始技能。
 
-- `main.py`: 总控入口，负责生命周期管理与补丁统一处理。
-- `claw.py`: 多轮执行核心，含规划/执行/评估/改进闭环。
-- `agent_system/`
-  - `core`: 数据结构与状态枚举。
-  - `planner`: 下一步动作规划。
-  - `executor`: 动作执行与命令黑名单。
-  - `evaluator`: 目标/步骤对齐检查与结果评估。
-  - `improver`: 失败改进、扩展策略、补丁申请。
-  - `memory`: 状态、历史、错误、日志、调试写入。
-  - `model`: 统一模型调用入口。
-  - `prompts`: 提示词加载与受控版本更新。
-  - `registry`: 通用能力登记与复用。
-- `config.json`: 系统配置（路径、限制、黑名单、补丁白名单）。
-- `models.json`: 模型配置。
-- `data/`: 运行时目录（日志、调试、状态、补丁、能力、提示词、临时代码）。
+## 开发提示
+- 如需再次开始，请在一局结束后点击“再来一局”。
+- 若要调试技能动画，可在浏览器开发者工具中观察 `#animationsLayer` 内的临时元素。
+- 头像与昵称支持即时修改，适合进行多端视觉校验。
 
-## 运行
+欢迎根据需求扩展技能与音效，或集成构建工具以适配更复杂的开发流程。
+
+## Python 版命令行对局
+
+1. 确保已安装 Python 3.9 及以上版本。
+2. 在项目根目录执行：
+   ```bash
+   python main.py
+   ```
+3. 通过交互式命令（`help` 查看列表）即可在终端体验技能规则，包括禁手提示、技能补给概率与“无懈可击”互动确认。
+
+### 运行测试
+
+项目附带 `pytest` 测试套件，覆盖核心判定与技能交互逻辑：
 
 ```bash
-python main.py "你的任务目标"
+pytest
 ```
-
-## 核心约束落实
-
-- 最大递归次数：`config.json -> limits.max_recursions`
-- 最大重启次数：`config.json -> limits.max_restarts`
-- 单任务最大补丁数：`config.json -> limits.max_patch_per_task`
-- 单任务最大失败尝试：`config.json -> limits.max_fail_attempts_per_task`
-- 同类错误重复上限：`config.json -> limits.max_same_error_repeats`
-- 危险命令黑名单：`config.json -> dangerous_commands_blacklist`
-- 自改白名单：`config.json -> patch.allowed_files`
-
-## 输出与状态
-
-- 运行日志：`data/logs/*.log.jsonl`
-- 调试日志：`data/debug/*.debug.jsonl`
-- 运行状态：`data/state/*_runtime_state.json`
-- 错误记忆：`data/state/*_error_memory.json`
-- 补丁队列：`data/patches/*_patch_queue.json`
-- 历史任务：`data/history/execution_history.jsonl`
-- 能力注册：`data/abilities/ability_registry.json`
-- 提示词元数据：`data/prompts/prompt_meta.json`
