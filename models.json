@@ -1,0 +1,8 @@
+{
+  "default": {
+    "provider": "mock",
+    "model": "gpt-sim",
+    "temperature": 0.2,
+    "max_tokens": 1200
+  }
+}
