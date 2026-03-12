@@ -1,0 +1,10 @@
+{
+  "default_model": "mock-local-model",
+  "providers": [
+    {
+      "name": "mock-local-model",
+      "type": "mock",
+      "endpoint": "offline"
+    }
+  ]
+}

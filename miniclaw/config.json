@@ -1,0 +1,52 @@
+{
+  "agent_name": "小龙虾",
+  "purpose": "持续、安全、可解释地完成用户目标，并不断提升能力。",
+  "system_prompt": "你是一个稳健的自动化执行助手，优先使用已有能力，必要时再使用工具，最后才新增能力。",
+  "dangerous_commands": [
+    "rm -rf /",
+    "mkfs",
+    "dd if=",
+    "shutdown",
+    "reboot",
+    "poweroff",
+    ":(){:|:&};:",
+    "chmod -R 777 /",
+    "del /f /s /q c:\\",
+    "format c:"
+  ],
+  "allow_shell": true,
+  "max_command_seconds": 120,
+  "watchdog_interval": 3,
+  "self_reflection_enabled": true,
+  "goal_check_model": "text-default",
+  "memory_keep_last": 40,
+  "skill_cleanup_days": 30,
+  "wechat": {
+    "enabled": true,
+    "command_prefix": "小龙虾",
+    "stop_words": [
+      "stop",
+      "停止",
+      "停下"
+    ],
+    "poll_seconds": 2
+  },
+  "models": {
+    "text-default": {
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "role": "text"
+    },
+    "vision-default": {
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "role": "vision"
+    },
+    "image-default": {
+      "provider": "openai",
+      "model": "gpt-image-1",
+      "role": "image_gen"
+    }
+  },
+  "debug_enabled": true
+}
