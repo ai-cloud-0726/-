@@ -24,12 +24,29 @@
   "wechat": {
     "enabled": true,
     "command_prefix": "小龙虾",
-    "stop_words": ["stop", "停止", "停下"],
+    "stop_words": [
+      "stop",
+      "停止",
+      "停下"
+    ],
     "poll_seconds": 2
   },
   "models": {
-    "text-default": {"provider": "openai", "model": "gpt-4o-mini", "role": "text"},
-    "vision-default": {"provider": "openai", "model": "gpt-4.1-mini", "role": "vision"},
-    "image-default": {"provider": "openai", "model": "gpt-image-1", "role": "image_gen"}
-  }
+    "text-default": {
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "role": "text"
+    },
+    "vision-default": {
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "role": "vision"
+    },
+    "image-default": {
+      "provider": "openai",
+      "model": "gpt-image-1",
+      "role": "image_gen"
+    }
+  },
+  "debug_enabled": true
 }

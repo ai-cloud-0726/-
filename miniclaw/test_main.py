@@ -57,6 +57,14 @@ class MiniClawTests(unittest.TestCase):
         msg = self.engine._handle_chat_command("回答侧色")
         self.assertIn("[chat]", msg)
 
+    def test_models_output_masks_apikey(self):
+        keys = self.engine.key_store.load()
+        keys["openai"] = "sk-test-1234567890"
+        self.engine.key_store.save(keys)
+        out = self.engine._handle_internal_command("models")
+        self.assertIn("apikey_masked", out)
+        self.assertIn("****", out)
+
 
 if __name__ == "__main__":
     unittest.main()
