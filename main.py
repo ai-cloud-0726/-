@@ -11,6 +11,7 @@ from system.core import build_initial_state, new_session_id
 from system.dashboard import Dashboard
 from system.evolver import Evolver
 from system.memory import MemoryStore
+from system.model import ModelClient
 from system.reflector import Reflector
 from system.types import TaskStatus
 
@@ -19,8 +20,18 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _feedback_print(msg: str) -> None:
+    print(msg)
+
+
 def load_json(path: str) -> Dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def check_model_connection() -> Dict[str, Any]:
+    models = load_json("models.json")
+    client = ModelClient(models)
+    return client.check_connection()
 
 
 def apply_patches(config: Dict[str, Any], memory: MemoryStore) -> List[Dict[str, Any]]:
@@ -40,7 +51,7 @@ def apply_patches(config: Dict[str, Any], memory: MemoryStore) -> List[Dict[str,
     return applied
 
 
-def run(goal: str, resume: bool = False) -> Dict[str, Any]:
+def run(goal: str, resume: bool = False, feedback: bool = False) -> Dict[str, Any]:
     config = load_json("config.json")
     models = load_json("models.json")
     memory = MemoryStore(config)
@@ -63,6 +74,11 @@ def run(goal: str, resume: bool = False) -> Dict[str, Any]:
     final_strategy = "unknown"
 
     for recursive_index in range(controls["max_recursive"]):
+        if feedback:
+            _feedback_print(
+                f"[main] 正在调用 claw (recursive={recursive_index + 1}/{controls['max_recursive']}, "
+                f"restart={state['restart_count']}/{controls['max_restarts']})"
+            )
         memory.log_run(
             {
                 "type": "recursive_entry",
@@ -72,7 +88,7 @@ def run(goal: str, resume: bool = False) -> Dict[str, Any]:
                 "restart_count": state["restart_count"],
             }
         )
-        result = claw.run(state, carry_context)
+        result = claw.run(state, carry_context, feedback=_feedback_print if feedback else None)
         final_message = result.message
         if state.get("history_actions"):
             final_strategy = state["history_actions"][-1]["action"].get("name", "unknown")
@@ -101,6 +117,8 @@ def run(goal: str, resume: bool = False) -> Dict[str, Any]:
                     "carry_context": carry_context,
                 }
             )
+            if feedback:
+                _feedback_print("[main] claw 返回需重启，已携带上下文准备下一次调用。")
             continue
 
         state["current_status"] = result.status.value
@@ -177,6 +195,23 @@ def get_dashboard() -> Dict[str, Any]:
     dashboard = Dashboard(config, memory, models)
     return dashboard.build()
 
+
+def _print_task_summary(state: Dict[str, Any], dashboard: Dict[str, Any], raw: bool = False) -> None:
+    if raw:
+        print(json.dumps(state, ensure_ascii=False, indent=2))
+        print(json.dumps(dashboard, ensure_ascii=False, indent=2))
+        return
+
+    status = state.get("current_status", "unknown")
+    goal = state.get("original_goal", "")
+    result = state.get("last_result", "")
+    rounds = state.get("step_count", 0)
+    restarts = state.get("restart_count", 0)
+    tokens = dashboard.get("model", {}).get("total_tokens_est", 0)
+    print(f"[claw] 状态={status} | 目标={goal} | 轮数={rounds} | 重启={restarts} | token估算={tokens}")
+    if result:
+        print(f"[claw] 结果: {result}")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Main controller for controllable self-evolving claw system")
     parser.add_argument("goal", nargs="?", default="", help="User original goal (optional in chat mode)")
@@ -193,15 +228,29 @@ def main() -> None:
         print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
         return
 
+    model_check = check_model_connection()
+    if model_check.get("ok"):
+        print(
+            f"[model] 连接检查通过 | provider={model_check.get('provider')} "
+            f"model={model_check.get('model')} | {model_check.get('detail')}"
+        )
+    else:
+        print(
+            f"[model] 连接检查失败 | provider={model_check.get('provider')} "
+            f"model={model_check.get('model')} | {model_check.get('detail')}"
+        )
+        print("[model] 可继续使用 mock 或修复模型端点后重试。")
+
+    raw_output = False
+
     # If goal is provided, execute once then enter chat mode.
     if args.goal:
-        final_state = run(args.goal, resume=args.resume)
-        print(json.dumps(final_state, ensure_ascii=False, indent=2))
-        print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
+        final_state = run(args.goal, resume=args.resume, feedback=True)
+        _print_task_summary(final_state, get_dashboard(), raw=raw_output)
 
     print(
         "进入对话模式。输入任务目标并回车执行；输入 benchmark/:benchmark 运行基准；"
-        "输入 dashboard/:dashboard 查看仪表盘；输入 exit/:exit 退出。"
+        "输入 dashboard/:dashboard 查看仪表盘；输入 json/:json 切换详细JSON输出；输入 exit/:exit 退出。"
     )
     while True:
         try:
@@ -222,6 +271,10 @@ def main() -> None:
         if cmd in {":dashboard", "dashboard"}:
             print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
             continue
+        if cmd in {":json", "json"}:
+            raw_output = not raw_output
+            print("详细JSON输出已开启。" if raw_output else "详细JSON输出已关闭。")
+            continue
 
         resume = False
         goal = user_input
@@ -232,9 +285,9 @@ def main() -> None:
                 print("用法: :resume <goal>")
                 continue
 
-        final_state = run(goal, resume=resume)
-        print(json.dumps(final_state, ensure_ascii=False, indent=2))
-        print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
+        # interactive mode always gives execution-process feedback for each claw call
+        final_state = run(goal, resume=resume, feedback=True)
+        _print_task_summary(final_state, get_dashboard(), raw=raw_output)
 
 
 if __name__ == "__main__":

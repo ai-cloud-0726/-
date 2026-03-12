@@ -63,6 +63,7 @@ python main.py --dashboard
 # :resume <goal> : 基于历史状态续跑
 # benchmark 或 :benchmark : 运行基准
 # dashboard 或 :dashboard : 查看仪表盘
+# json 或 :json          : 切换详细JSON输出
 # exit 或 :exit          : 退出
 ```
 
@@ -78,6 +79,10 @@ python main.py --dashboard
 - 程序化验证优先，模型语义判断补充。
 - 每次演化可审计、可回滚、可基准对比。
 
+
+默认是简洁对话输出（状态+结果摘要）；如需完整 JSON 可在对话模式中输入 `json` 或 `:json` 切换。
+每次调用 claw 都会显示调用提示与处理过程（规划/大模型分析/执行/评估）。
+启动时会自动进行大模型连接检查并输出结果。
 
 ## 一致性评估
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from system.evaluator import Evaluator
 from system.executor import Executor
@@ -32,7 +32,12 @@ class ClawEngine:
         self.improver = Improver(config)
         self.goal_manager = GoalManager()
 
-    def run(self, state: Dict[str, Any], carry_context: Dict[str, Any]) -> ClawResult:
+    def run(
+        self,
+        state: Dict[str, Any],
+        carry_context: Dict[str, Any],
+        feedback: Optional[Callable[[str], None]] = None,
+    ) -> ClawResult:
         controls = self.config["controls"]
         goal = state["original_goal"]
         tried_methods: List[str] = [e.get("failed_method", "") for e in self.memory.load_error_memory()]
@@ -42,18 +47,40 @@ class ClawEngine:
         goal_state = self.memory.load_goal_state() or self.goal_manager.initialize(goal)
         self.memory.save_goal_state(goal_state)
 
+        if feedback:
+            feedback(f"[claw] 已启动：开始处理目标 -> {goal}")
+
         for _ in range(controls["max_steps"]):
             step = state["step_count"] + 1
             action = self.planner.next_action(goal, step, tried_methods, step_chain)
             state["step_count"] = step
 
+            if feedback:
+                feedback(
+                    f"[claw] 第{step}轮 规划完成: action={action.name} kind={action.kind}"
+                )
+
             model_note = self.model.generate(self.prompts.load("system_prompt"), {"goal": goal, "step": step})
+            if feedback:
+                feedback(f"[claw] 第{step}轮 大模型分析: {model_note}")
             t0 = perf_counter()
             execution = self.executor.run(action)
             duration = perf_counter() - t0
+
+            if feedback:
+                feedback(
+                    f"[claw] 第{step}轮 执行完成: ok={execution.get('ok', False)} "
+                    f"returncode={execution.get('returncode', 'n/a')}"
+                )
+
             planned_ok = len(step_chain) > 0
             verifier_result = self.verifier.verify(goal, execution)
             evaluation = self.evaluator.evaluate(goal, action.__dict__, execution, planned_ok, verifier_result)
+
+            if feedback:
+                feedback(
+                    f"[claw] 第{step}轮 评估: success={evaluation.success} reason={evaluation.reason}"
+                )
 
             error_record = None
             if not evaluation.success:
@@ -120,6 +147,8 @@ class ClawEngine:
             if evaluation.success:
                 goal_state = self.goal_manager.mark_done(goal_state, "g2", "已完成执行与验证")
                 self.memory.save_goal_state(goal_state)
+                if feedback:
+                    feedback("[claw] 任务达成，准备返回结果。")
                 return ClawResult(
                     status=TaskStatus.SUCCESS,
                     message="任务成功",
@@ -130,6 +159,8 @@ class ClawEngine:
                 )
 
             if error_streak(self.memory.load_error_memory()) >= controls["max_same_error_streak"]:
+                if feedback:
+                    feedback("[claw] 连续同类错误超限，建议重启。")
                 return ClawResult(
                     status=TaskStatus.NEED_RESTART,
                     message="重复同类错误过多，需要重启",
@@ -139,6 +170,8 @@ class ClawEngine:
                 )
 
             if len(tried_methods) >= controls["max_failed_attempts"]:
+                if feedback:
+                    feedback("[claw] 失败尝试次数超限，任务失败。")
                 return ClawResult(
                     status=TaskStatus.FAILURE,
                     message="失败尝试次数超过限制",
@@ -148,6 +181,8 @@ class ClawEngine:
                 )
 
             if len(patch_requests) >= controls["max_patch_attempts"]:
+                if feedback:
+                    feedback("[claw] 补丁请求次数超限，任务阻塞。")
                 return ClawResult(
                     status=TaskStatus.BLOCKED,
                     message="补丁请求次数超过限制",
@@ -156,6 +191,8 @@ class ClawEngine:
                     carried_context=self._carry_context(state),
                 )
 
+        if feedback:
+            feedback("[claw] 达到最大步数，返回需重启状态。")
         return ClawResult(
             status=TaskStatus.NEED_RESTART,
             message="达到最大步数，需要重启",

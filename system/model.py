@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
@@ -131,3 +133,34 @@ class ModelClient:
             },
         )
         return response
+
+    def check_connection(self) -> Dict[str, Any]:
+        endpoint = f"{self.profile.transport.base_url}{self.profile.transport.api_path}"
+        if self.profile.provider == "mock":
+            return {
+                "ok": True,
+                "provider": self.profile.provider,
+                "model": self.profile.model,
+                "endpoint": endpoint,
+                "detail": "mock provider enabled",
+            }
+
+        try:
+            req = Request(self.profile.transport.base_url, method="GET")
+            with urlopen(req, timeout=self.profile.timeout_sec):
+                pass
+            return {
+                "ok": True,
+                "provider": self.profile.provider,
+                "model": self.profile.model,
+                "endpoint": endpoint,
+                "detail": "endpoint reachable",
+            }
+        except URLError as exc:
+            return {
+                "ok": False,
+                "provider": self.profile.provider,
+                "model": self.profile.model,
+                "endpoint": endpoint,
+                "detail": f"endpoint unreachable: {exc}",
+            }
