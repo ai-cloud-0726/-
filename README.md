@@ -1,76 +1,48 @@
-# 可控持续进化 Python 系统（main + claw）
+# Main + Claw 可控进化执行系统
 
-本项目第二版重点是让“进化闭环”真实成立，而不是仅堆功能。
+该项目实现了一个由 `main`（总控）与 `claw`（执行核心）组成的 Python 系统，支持递归、重启、状态续传、错误记忆、补丁队列、能力沉淀、提示词版本化和完整日志/调试记录。
 
-闭环：**目标管理 → 规划评分 → 执行 → 程序化验证 → 复盘沉淀 → 受控演化（快照/回滚）**。
+## 目录结构
 
-## 架构
-
-- `main.py`：总控入口（递归、重启、补丁白名单、快照/回滚、历史与复盘、基准测试）
-- `claw.py`：多轮执行核心（每轮规划、执行、程序化验证、评估、改进）
-- `system/`：模块化子系统
-  - `goal_manager.py`：目标状态机（主目标/子目标/阻塞点/下一步）
-  - `planner.py`：策略候选+评分器
-  - `executor.py`：执行与权限分级、危险命令拦截
-  - `verifier.py`：程序化验证器（返回码/产物/JSON 等）
-  - `evaluator.py`：结果评估（结合验证器）
-  - `reflector.py`：任务复盘记录
-  - `evolver.py`：版本快照与回滚
-  - `improver.py`：能力不足判定与补丁请求
-  - `memory.py`：状态/目标/错误/补丁/历史/复盘/基准/日志
-  - `model.py`：统一模型调用封装
-  - `prompts.py`：提示词管理与版本化
-  - `registry.py`：能力注册、质量统计、自动淘汰归档
-  - `types.py`：状态与数据结构定义
-
-## 配置
-
-- `config.json`
-  - 路径配置（runtime/logs/history/temp/abilities/prompts/versions/snapshots）
-  - 控制参数（最大步数、最大递归、最大重启、最大失败尝试等）
-  - 危险命令黑名单
-  - 权限分级（L1-L4，默认 L2）
-  - 自修改补丁白名单
-- `models.json`：大模型完整配置（active_profile、profiles、provider、endpoint、headers、key 环境变量、重试超时、模型路径/trace 路径）
-
-## 关键数据文件
-
-- `runtime/state.json`：运行态
-- `runtime/goal_state.json`：目标状态机
-- `runtime/error_memory.json`：错误记忆
-- `runtime/patch_queue.json`：补丁队列
-- `runtime/ability_registry.json`：能力注册
-- `runtime/archived_abilities.json`：淘汰归档能力
-- `runtime/prompt_metadata.json`：提示词元数据
-- `versions/version_meta.json`：版本元数据
-- `history/tasks.json`：任务历史
-- `history/retrospectives.json`：任务复盘
-- `history/benchmarks.json`：基准任务集
-- `logs/run.log`：运行日志
-- `logs/debug.log`：调试日志
+- `main.py`: 总控入口，负责生命周期管理与补丁统一处理。
+- `claw.py`: 多轮执行核心，含规划/执行/评估/改进闭环。
+- `agent_system/`
+  - `core`: 数据结构与状态枚举。
+  - `planner`: 下一步动作规划。
+  - `executor`: 动作执行与命令黑名单。
+  - `evaluator`: 目标/步骤对齐检查与结果评估。
+  - `improver`: 失败改进、扩展策略、补丁申请。
+  - `memory`: 状态、历史、错误、日志、调试写入。
+  - `model`: 统一模型调用入口。
+  - `prompts`: 提示词加载与受控版本更新。
+  - `registry`: 通用能力登记与复用。
+- `config.json`: 系统配置（路径、限制、黑名单、补丁白名单）。
+- `models.json`: 模型配置。
+- `data/`: 运行时目录（日志、调试、状态、补丁、能力、提示词、临时代码）。
 
 ## 运行
 
 ```bash
-python main.py
-python main.py "你的目标"
-python main.py --benchmark
-
-# 对话模式命令
-# 直接输入目标: 执行任务
-# :resume <goal> : 基于历史状态续跑
-# :benchmark     : 运行基准
-# :exit          : 退出
+python main.py "你的任务目标"
 ```
 
-## 三类扩展能力
+## 核心约束落实
 
-1. **受控自修改**：通过补丁请求，统一由 `main` 在白名单内应用。
-2. **通用能力沉淀**：能力代码写入固定目录并登记元数据与质量统计。
-3. **临时代码实验**：临时代码仅写入 `temp/`。
+- 最大递归次数：`config.json -> limits.max_recursions`
+- 最大重启次数：`config.json -> limits.max_restarts`
+- 单任务最大补丁数：`config.json -> limits.max_patch_per_task`
+- 单任务最大失败尝试：`config.json -> limits.max_fail_attempts_per_task`
+- 同类错误重复上限：`config.json -> limits.max_same_error_repeats`
+- 危险命令黑名单：`config.json -> dangerous_commands_blacklist`
+- 自改白名单：`config.json -> patch.allowed_files`
 
-## 设计原则
+## 输出与状态
 
-- 受控持续进化，不做无约束自改。
-- 程序化验证优先，模型语义判断补充。
-- 每次演化可审计、可回滚、可基准对比。
+- 运行日志：`data/logs/*.log.jsonl`
+- 调试日志：`data/debug/*.debug.jsonl`
+- 运行状态：`data/state/*_runtime_state.json`
+- 错误记忆：`data/state/*_error_memory.json`
+- 补丁队列：`data/patches/*_patch_queue.json`
+- 历史任务：`data/history/execution_history.jsonl`
+- 能力注册：`data/abilities/ability_registry.json`
+- 提示词元数据：`data/prompts/prompt_meta.json`

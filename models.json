@@ -1,47 +1,10 @@
 {
-  "active_profile": "default",
-  "profiles": {
-    "default": {
-      "provider": "mock",
-      "model": "gpt-sim",
-      "temperature": 0.2,
-      "max_tokens": 1200,
-      "timeout_sec": 30,
-      "max_retries": 2,
-      "transport": {
-        "base_url": "http://localhost:11434",
-        "api_path": "/v1/chat/completions",
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "api_key_env": "OPENAI_API_KEY"
-      },
-      "paths": {
-        "model_cache_dir": "runtime/model_cache",
-        "prompt_trace_file": "runtime/model_prompt_trace.jsonl",
-        "response_trace_file": "runtime/model_response_trace.jsonl"
-      }
-    },
-    "backup": {
-      "provider": "mock",
-      "model": "gpt-sim-backup",
-      "temperature": 0.1,
-      "max_tokens": 1000,
-      "timeout_sec": 20,
-      "max_retries": 1,
-      "transport": {
-        "base_url": "http://localhost:11434",
-        "api_path": "/v1/chat/completions",
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "api_key_env": "OPENAI_API_KEY"
-      },
-      "paths": {
-        "model_cache_dir": "runtime/model_cache",
-        "prompt_trace_file": "runtime/model_prompt_trace.jsonl",
-        "response_trace_file": "runtime/model_response_trace.jsonl"
-      }
+  "default_model": "mock-local-model",
+  "providers": [
+    {
+      "name": "mock-local-model",
+      "type": "mock",
+      "endpoint": "offline"
     }
-  }
+  ]
 }
