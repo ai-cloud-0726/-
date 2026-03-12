@@ -1,0 +1,25 @@
+{
+  "skills": [
+    {
+      "name": "run_shell",
+      "description": "执行受控 shell 命令",
+      "usage": "run_shell <command>",
+      "method": "CommandExecutor.run",
+      "source": "built-in",
+      "efficiency": 1.0,
+      "last_used": null,
+      "created_at": null
+    },
+    {
+      "name": "help",
+      "description": "查看系统参数与能力清单",
+      "usage": "help",
+      "method": "MiniClawEngine.show_help",
+      "source": "built-in",
+      "efficiency": 1.0,
+      "last_used": null,
+      "created_at": null
+    }
+  ],
+  "cleanup_history": []
+}
