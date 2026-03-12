@@ -1,38 +1,82 @@
 {
-  "models_file": "models.json",
   "paths": {
-    "logs_dir": "data/logs",
-    "debug_dir": "data/debug",
-    "temp_dir": "data/temp",
-    "history_dir": "data/history",
-    "state_dir": "data/state",
-    "patch_dir": "data/patches",
-    "ability_dir": "data/abilities",
-    "prompt_dir": "data/prompts"
+    "runtime_dir": "runtime",
+    "logs_dir": "logs",
+    "history_dir": "history",
+    "temp_dir": "temp",
+    "abilities_dir": "abilities",
+    "prompts_dir": "prompts",
+    "versions_dir": "versions",
+    "snapshots_dir": "snapshots",
+    "state_file": "runtime/state.json",
+    "goal_state_file": "runtime/goal_state.json",
+    "error_memory_file": "runtime/error_memory.json",
+    "patch_queue_file": "runtime/patch_queue.json",
+    "history_file": "history/tasks.json",
+    "retrospectives_file": "history/retrospectives.json",
+    "benchmarks_file": "history/benchmarks.json",
+    "ability_registry_file": "runtime/ability_registry.json",
+    "archived_ability_registry_file": "runtime/archived_abilities.json",
+    "prompt_metadata_file": "runtime/prompt_metadata.json",
+    "run_log_file": "logs/run.log",
+    "debug_log_file": "logs/debug.log",
+    "version_meta_file": "versions/version_meta.json",
+    "dashboard_file": "runtime/dashboard.json"
   },
-  "limits": {
-    "max_steps": 8,
-    "max_recursions": 3,
-    "max_restarts": 2,
-    "max_same_error_repeats": 3,
-    "max_patch_per_task": 3,
-    "max_fail_attempts_per_task": 5,
-    "max_prompt_updates_per_task": 5
+  "controls": {
+    "max_steps": 20,
+    "max_recursive": 6,
+    "max_restarts": 3,
+    "max_patch_attempts": 4,
+    "max_failed_attempts": 8,
+    "max_same_error_streak": 3,
+    "retire_fail_streak": 5,
+    "retire_low_success_rate": 0.25
   },
   "dangerous_commands_blacklist": [
     "rm -rf /",
+    "mkfs",
+    "dd if=",
     "shutdown",
     "reboot",
-    ":(){ :|:& };:",
-    "mkfs",
-    "dd if="
+    "poweroff"
   ],
-  "patch": {
-    "allowed_files": [
-      "claw.py",
-      "agent_system/executor/executor.py",
-      "agent_system/prompts/manager.py",
-      "agent_system/improver/improver.py"
-    ]
+  "permissions": {
+    "default_level": "L2",
+    "allow_levels": [
+      "L1",
+      "L2"
+    ],
+    "levels": {
+      "L1": {
+        "allow_command": false,
+        "allow_write": false,
+        "allow_self_modify": false
+      },
+      "L2": {
+        "allow_command": true,
+        "allow_write": true,
+        "allow_self_modify": false
+      },
+      "L3": {
+        "allow_command": true,
+        "allow_write": true,
+        "allow_self_modify": true
+      },
+      "L4": {
+        "allow_command": true,
+        "allow_write": true,
+        "allow_self_modify": true
+      }
+    }
+  },
+  "self_modification": {
+    "allow_patch_requests": true,
+    "allowed_patch_files": [
+      "prompts/system_prompt.txt",
+      "prompts/planner_prompt.txt",
+      "prompts/evaluator_prompt.txt"
+    ],
+    "max_prompt_versions": 20
   }
 }

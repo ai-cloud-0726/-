@@ -22,7 +22,9 @@ DEFAULT_JSON_CONTENT = {
     "archived_ability_registry_file": [],
     "prompt_metadata_file": {},
     "version_meta_file": {"current_version": "0.0.0", "latest_snapshot": None, "history": []},
+    "dashboard_file": {},
 }
+
 
 
 class MemoryStore:
@@ -148,3 +150,11 @@ class MemoryStore:
 
     def save_version_meta(self, meta: Dict[str, Any]) -> None:
         self.write_json("version_meta_file", meta)
+
+    def load_dashboard(self) -> Dict[str, Any]:
+        data = self.read_json("dashboard_file", {})
+        return data if isinstance(data, dict) else {}
+
+    def save_dashboard(self, dashboard: Dict[str, Any]) -> None:
+        self.write_json("dashboard_file", dashboard)
+

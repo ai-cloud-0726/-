@@ -86,11 +86,17 @@ class ModelClient:
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    def _estimate_tokens(self, text: str) -> int:
+        # lightweight estimate for local dashboarding (about 4 chars ~= 1 token)
+        text = text or ""
+        return max(1, (len(text) + 3) // 4)
+
     def generate(self, prompt: str, context: Dict[str, Any]) -> str:
         goal = context.get("goal", "")
         step = context.get("step", "")
         api_key_set = bool(os.getenv(self.profile.transport.api_key_env, ""))
 
+        prompt_tokens_est = self._estimate_tokens(prompt)
         self._trace(
             self.profile.paths.prompt_trace_file,
             {
@@ -102,6 +108,7 @@ class ModelClient:
                 "step": step,
                 "api_key_set": api_key_set,
                 "prompt_length": len(prompt),
+                "prompt_tokens_est": prompt_tokens_est,
             },
         )
 
@@ -112,12 +119,15 @@ class ModelClient:
             f"| advice=保持目标一致并执行可验证动作"
         )
 
+        response_tokens_est = self._estimate_tokens(response)
         self._trace(
             self.profile.paths.response_trace_file,
             {
                 "profile": self.active_profile_name,
                 "model": self.profile.model,
                 "response": response,
+                "response_tokens_est": response_tokens_est,
+                "total_tokens_est": prompt_tokens_est + response_tokens_est,
             },
         )
         return response

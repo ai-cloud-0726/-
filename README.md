@@ -1,35 +1,85 @@
-# 五子棋技能大作业
+# 可控持续进化 Python 系统（main + claw）
 
-本项目同时提供网页与 Python 命令行两个版本的技能五子棋体验。以下说明有助于快速预览与调试：
+本项目第二版重点是让“进化闭环”真实成立，而不是仅堆功能。
 
-## 快速预览
-1. 在项目根目录启动简易静态服务器，例如：
-   ```bash
-   python3 -m http.server 8000
-   ```
-2. 在浏览器中打开 [http://localhost:8000](http://localhost:8000)，即可看到主页。
-3. 点击中心的“开始游戏”按钮进入对局，技能栏会自动补发初始技能。
+闭环：**目标管理 → 规划评分 → 执行 → 程序化验证 → 复盘沉淀 → 受控演化（快照/回滚）**。
 
-## 开发提示
-- 如需再次开始，请在一局结束后点击“再来一局”。
-- 若要调试技能动画，可在浏览器开发者工具中观察 `#animationsLayer` 内的临时元素。
-- 头像与昵称支持即时修改，适合进行多端视觉校验。
+## 架构
 
-欢迎根据需求扩展技能与音效，或集成构建工具以适配更复杂的开发流程。
+- `main.py`：总控入口（递归、重启、补丁白名单、快照/回滚、历史与复盘、基准测试）
+- `claw.py`：多轮执行核心（每轮规划、执行、程序化验证、评估、改进）
+- `system/`：模块化子系统
+  - `goal_manager.py`：目标状态机（主目标/子目标/阻塞点/下一步）
+  - `planner.py`：策略候选+评分器
+  - `executor.py`：执行与权限分级、危险命令拦截
+  - `verifier.py`：程序化验证器（返回码/产物/JSON 等）
+  - `evaluator.py`：结果评估（结合验证器）
+  - `reflector.py`：任务复盘记录
+  - `evolver.py`：版本快照与回滚
+  - `improver.py`：能力不足判定与补丁请求
+  - `memory.py`：状态/目标/错误/补丁/历史/复盘/基准/日志
+  - `model.py`：统一模型调用封装
+  - `prompts.py`：提示词管理与版本化
+  - `registry.py`：能力注册、质量统计、自动淘汰归档
+  - `types.py`：状态与数据结构定义
 
-## Python 版命令行对局
+## 配置
 
-1. 确保已安装 Python 3.9 及以上版本。
-2. 在项目根目录执行：
-   ```bash
-   python main.py
-   ```
-3. 通过交互式命令（`help` 查看列表）即可在终端体验技能规则，包括禁手提示、技能补给概率与“无懈可击”互动确认。
+- `config.json`
+  - 路径配置（runtime/logs/history/temp/abilities/prompts/versions/snapshots）
+  - 控制参数（最大步数、最大递归、最大重启、最大失败尝试等）
+  - 危险命令黑名单
+  - 权限分级（L1-L4，默认 L2）
+  - 自修改补丁白名单
+- `models.json`：大模型完整配置（active_profile、profiles、provider、endpoint、headers、key 环境变量、重试超时、模型路径/trace 路径）
 
-### 运行测试
+## 关键数据文件
 
-项目附带 `pytest` 测试套件，覆盖核心判定与技能交互逻辑：
+- `runtime/state.json`：运行态
+- `runtime/goal_state.json`：目标状态机
+- `runtime/error_memory.json`：错误记忆
+- `runtime/patch_queue.json`：补丁队列
+- `runtime/ability_registry.json`：能力注册
+- `runtime/archived_abilities.json`：淘汰归档能力
+- `runtime/prompt_metadata.json`：提示词元数据
+- `runtime/dashboard.json`：运行仪表盘（迭代次数、token 估算、轮数、错误数等）
+- `versions/version_meta.json`：版本元数据
+- `history/tasks.json`：任务历史
+- `history/retrospectives.json`：任务复盘
+- `history/benchmarks.json`：基准任务集
+- `logs/run.log`：运行日志
+- `logs/debug.log`：调试日志
+
+## 运行
 
 ```bash
-pytest
+python main.py
+python main.py "你的目标"
+python main.py --benchmark
+python main.py --dashboard
+
+# 对话模式命令
+# 直接输入目标: 执行任务
+# :resume <goal> : 基于历史状态续跑
+# :benchmark     : 运行基准
+# :dashboard     : 查看仪表盘
+# :exit          : 退出
 ```
+
+## 三类扩展能力
+
+1. **受控自修改**：通过补丁请求，统一由 `main` 在白名单内应用。
+2. **通用能力沉淀**：能力代码写入固定目录并登记元数据与质量统计。
+3. **临时代码实验**：临时代码仅写入 `temp/`。
+
+## 设计原则
+
+- 受控持续进化，不做无约束自改。
+- 程序化验证优先，模型语义判断补充。
+- 每次演化可审计、可回滚、可基准对比。
+
+
+## 一致性评估
+
+- 已重新审查当前实现与需求：保留主控/执行分离、递归重启约束、状态续传、错误记忆、补丁白名单与日志分层。
+- 新增仪表盘用于持续观察 claw 迭代次数、任务轮数、token 估算、错误数、能力规模等运行指标。

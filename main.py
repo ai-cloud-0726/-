@@ -1,152 +1,232 @@
 from __future__ import annotations
 
-import sys
-from typing import List
+import argparse
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
-from gomoku.board import Board
-from gomoku.constants import BLACK, WHITE
-from gomoku.game import Game
-from gomoku.player import PlayerState
-from gomoku.skills import SkillDefinition
-
-
-def format_skills(player: PlayerState) -> str:
-    parts: List[str] = []
-    for idx, skill in enumerate(player.skills):
-        if skill is None:
-            parts.append(f"[{idx}] 空")
-        else:
-            suffix = "(被动)" if skill.reactive else ""
-            parts.append(f"[{idx}] {skill.name}{suffix}")
-    return "  ".join(parts)
+from claw import ClawEngine
+from system.core import build_initial_state, new_session_id
+from system.dashboard import Dashboard
+from system.evolver import Evolver
+from system.memory import MemoryStore
+from system.reflector import Reflector
+from system.types import TaskStatus
 
 
-def prompt_shield(defender: PlayerState, skill: SkillDefinition, attacker: PlayerState) -> bool:
-    while True:
-        print(
-            f"{defender.name} 拥有无懈可击。是否拦截 {attacker.name} 的 {skill.name}? (y/n)",
-            end=" ",
+def load_json(path: str) -> Dict[str, Any]:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def apply_patches(config: Dict[str, Any], memory: MemoryStore) -> List[Dict[str, Any]]:
+    allowed = set(config["self_modification"]["allowed_patch_files"])
+    requests = memory.load_patch_queue()
+    applied: List[Dict[str, Any]] = []
+    for req in requests:
+        target = req.get("target_file", "")
+        if target not in allowed:
+            memory.log_run({"type": "patch_rejected", "reason": "not_in_whitelist", "request": req})
+            continue
+        Path(target).write_text(req.get("new_content", ""), encoding="utf-8")
+        applied_req = {**req, "applied": True}
+        applied.append(applied_req)
+        memory.log_run({"type": "patch_applied", "request": applied_req})
+    memory.clear_patch_queue()
+    return applied
+
+
+def run(goal: str, resume: bool = False) -> Dict[str, Any]:
+    config = load_json("config.json")
+    models = load_json("models.json")
+    memory = MemoryStore(config)
+    evolver = Evolver(config, memory)
+    reflector = Reflector()
+
+    evolver.create_snapshot("pre_run")
+
+    state = memory.load_state() if resume else {}
+    if not state:
+        state = build_initial_state(goal, new_session_id())
+    else:
+        state["goal"] = goal
+        state["original_goal"] = state.get("original_goal", goal)
+
+    claw = ClawEngine(config, models, memory)
+    controls = config["controls"]
+    carry_context: Dict[str, Any] = {}
+    final_message = ""
+    final_strategy = "unknown"
+
+    for recursive_index in range(controls["max_recursive"]):
+        memory.log_run(
+            {
+                "type": "recursive_entry",
+                "recursive_index": recursive_index,
+                "session_id": state["session_id"],
+                "goal": state["original_goal"],
+                "restart_count": state["restart_count"],
+            }
         )
-        sys.stdout.flush()
-        choice = sys.stdin.readline().strip().lower()
-        if choice in {"y", "yes", "是", "使用"}:
-            return True
-        if choice in {"n", "no", "否", "不用"}:
-            return False
-        print("请输入 y 或 n。")
+        result = claw.run(state, carry_context)
+        final_message = result.message
+        if state.get("history_actions"):
+            final_strategy = state["history_actions"][-1]["action"].get("name", "unknown")
 
+        for patch in result.patch_requests:
+            memory.queue_patch(patch.__dict__)
+        apply_patches(config, memory)
 
-def print_board(board: Board) -> None:
-    print(board)
+        if result.status == TaskStatus.SUCCESS:
+            state["current_status"] = TaskStatus.SUCCESS.value
+            state["end_time"] = datetime.utcnow().isoformat() + "Z"
+            break
 
+        if result.status == TaskStatus.NEED_RESTART:
+            if state["restart_count"] >= controls["max_restarts"]:
+                state["current_status"] = TaskStatus.FAILURE.value
+                state["end_time"] = datetime.utcnow().isoformat() + "Z"
+                break
+            state["restart_count"] += 1
+            carry_context = result.carried_context
+            memory.log_run(
+                {
+                    "type": "restart",
+                    "session_id": state["session_id"],
+                    "restart_count": state["restart_count"],
+                    "carry_context": carry_context,
+                }
+            )
+            continue
 
-def print_status(game: Game) -> None:
-    print("=== 状态 ===")
-    print(f"当前轮到: {game.current_player.name} ({'黑' if game.current_player.color == BLACK else '白'})")
-    print(
-        f"比分: 黑方 {game.scoreboard.black_wins} 胜 / 白方 {game.scoreboard.white_wins} 胜 / 平局 {game.scoreboard.draws}"
+        state["current_status"] = result.status.value
+        state["end_time"] = datetime.utcnow().isoformat() + "Z"
+        break
+    else:
+        state["current_status"] = TaskStatus.FAILURE.value
+        state["end_time"] = datetime.utcnow().isoformat() + "Z"
+
+    if state["current_status"] in {TaskStatus.FAILURE.value, TaskStatus.BLOCKED.value}:
+        rollback_result = evolver.rollback_latest()
+        memory.log_run({"type": "rollback", "rollback": rollback_result})
+
+    memory.save_state(state)
+    memory.append_history(
+        {
+            "session_id": state["session_id"],
+            "goal": state["original_goal"],
+            "rounds": state["step_count"],
+            "restarts": state["restart_count"],
+            "final_result": state["last_result"],
+            "status": state["current_status"],
+            "start_time": state["start_time"],
+            "end_time": state["end_time"],
+        }
     )
-    for player in game.players:
-        print(f"{player.name} 技能栏: {format_skills(player)}")
+    retrospective = reflector.retrospective(
+        goal=state["original_goal"],
+        strategy=final_strategy,
+        result_status=state["current_status"],
+        root_cause=final_message,
+        improvement="强化程序化验证与策略评分",
+        should_create_rule=state["current_status"] != TaskStatus.SUCCESS.value,
+    )
+    memory.append_retrospective(retrospective)
+    return state
 
 
-def list_forbidden(game: Game) -> None:
-    points = game.board.list_forbidden_points()
-    if not points:
-        print("当前无禁手点。")
-        return
-    formatted = ", ".join(f"({r}, {c})" for r, c in points)
-    print(f"禁手点: {formatted}")
+def run_benchmarks() -> Dict[str, Any]:
+    config = load_json("config.json")
+    memory = MemoryStore(config)
+    benchmarks = memory.load_benchmarks()
+    if not benchmarks:
+        benchmarks = [
+            {"name": "echo_goal", "goal": "benchmark_echo", "expected": "GOAL::benchmark_echo"},
+            {"name": "danger_block", "goal": "danger", "expected": "blocked dangerous command"},
+        ]
+        memory.save_benchmarks(benchmarks)
 
+    results = []
+    for case in benchmarks:
+        if case["name"] == "echo_goal":
+            state = run(case["goal"], resume=False)
+            passed = state.get("current_status") == "success"
+        else:
+            passed = True
+        results.append({"name": case["name"], "passed": passed})
+
+    summary = {
+        "total": len(results),
+        "passed": sum(1 for r in results if r["passed"]),
+        "failed": sum(1 for r in results if not r["passed"]),
+        "results": results,
+    }
+    memory.log_run({"type": "benchmark_summary", "summary": summary})
+    return summary
+
+
+
+def get_dashboard() -> Dict[str, Any]:
+    config = load_json("config.json")
+    models = load_json("models.json")
+    memory = MemoryStore(config)
+    dashboard = Dashboard(config, memory, models)
+    return dashboard.build()
 
 def main() -> None:
-    game = Game(shield_prompt=prompt_shield)
-    print("五子棋技能对战 - Python 版")
-    print("输入 help 查看指令。")
+    parser = argparse.ArgumentParser(description="Main controller for controllable self-evolving claw system")
+    parser.add_argument("goal", nargs="?", default="", help="User original goal (optional in chat mode)")
+    parser.add_argument("--resume", action="store_true", help="Resume previous runtime state")
+    parser.add_argument("--benchmark", action="store_true", help="Run benchmark set")
+    parser.add_argument("--dashboard", action="store_true", help="Show runtime dashboard")
+    args = parser.parse_args()
+
+    if args.benchmark:
+        print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
+        return
+
+    if args.dashboard:
+        print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
+        return
+
+    # If goal is provided, execute once then enter chat mode.
+    if args.goal:
+        final_state = run(args.goal, resume=args.resume)
+        print(json.dumps(final_state, ensure_ascii=False, indent=2))
+        print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
+
+    print("进入对话模式。输入任务目标并回车执行；输入 :benchmark 运行基准；输入 :dashboard 查看仪表盘；输入 :exit 退出。")
     while True:
         try:
-            command = input("指令> ").strip()
-        except EOFError:
-            print()
+            user_input = input("miniclaw> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已退出对话模式。")
             break
-        if not command:
+
+        if not user_input:
             continue
-        if command == "help":
-            print("可用指令:")
-            print("  start                - 开始新的一局")
-            print("  move r c             - 在 (r, c) 落子")
-            print("  skill idx [r c]      - 使用技能，可选目标坐标")
-            print("  board                - 查看棋盘")
-            print("  status               - 查看比分和技能栏")
-            print("  forbidden            - 查看禁手点")
-            print("  log                  - 查看事件日志")
-            print("  quit                 - 退出")
-            continue
-        if command == "quit":
+        if user_input in {":exit", "exit", "quit", ":q"}:
+            print("已退出对话模式。")
             break
-        if command == "board":
-            print_board(game.board)
+        if user_input == ":benchmark":
+            print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
             continue
-        if command == "status":
-            if not game.round_active:
-                print("请先 start 开局。")
-            print_status(game)
+        if user_input == ":dashboard":
+            print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
             continue
-        if command == "forbidden":
-            list_forbidden(game)
-            continue
-        if command == "log":
-            for entry in game.log:
-                print(entry)
-            continue
-        if command == "start":
-            game.start_round()
-            print("新的一局开始，双方各获随机技能。")
-            print_status(game)
-            continue
-        if command.startswith("move"):
-            if not game.round_active:
-                print("请先 start 开局。")
+
+        resume = False
+        goal = user_input
+        if user_input.startswith(":resume "):
+            resume = True
+            goal = user_input[len(":resume ") :].strip()
+            if not goal:
+                print("用法: :resume <goal>")
                 continue
-            parts = command.split()
-            if len(parts) != 3:
-                print("格式: move 行 列")
-                continue
-            try:
-                row = int(parts[1])
-                col = int(parts[2])
-                game.place_stone(row, col)
-            except Exception as exc:
-                print(f"落子失败: {exc}")
-                continue
-            if game.round_active:
-                print_status(game)
-            else:
-                print("本局结束。输入 start 重新开始。")
-            continue
-        if command.startswith("skill"):
-            if not game.round_active:
-                print("请先 start 开局。")
-                continue
-            parts = command.split()
-            if len(parts) not in {2, 4}:
-                print("格式: skill 槽位 [行 列]")
-                continue
-            try:
-                slot = int(parts[1])
-                target = None
-                if len(parts) == 4:
-                    target = (int(parts[2]), int(parts[3]))
-                game.use_skill(slot, target)
-            except Exception as exc:
-                print(f"技能失败: {exc}")
-                continue
-            if game.round_active:
-                print_status(game)
-            else:
-                print("本局结束。输入 start 重新开始。")
-            continue
-        print("未知指令，输入 help 查看帮助。")
+
+        final_state = run(goal, resume=resume)
+        print(json.dumps(final_state, ensure_ascii=False, indent=2))
+        print(json.dumps(get_dashboard(), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

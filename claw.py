@@ -1,146 +1,178 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from datetime import datetime
+from time import perf_counter
 from typing import Any, Dict, List
 
-from agent_system.core.types import ClawInput, ClawOutput, ErrorMemoryEntry, ErrorType, StepRecord, TaskStatus
-from agent_system.evaluator.evaluator import Evaluator
-from agent_system.executor.executor import Executor
-from agent_system.improver.improver import Improver
-from agent_system.model.client import ModelClient
-from agent_system.planner.planner import Planner
-from agent_system.prompts.manager import PromptManager
-from agent_system.registry.ability_registry import AbilityRegistry
-from agent_system.memory.storage import Storage
+from system.evaluator import Evaluator
+from system.executor import Executor
+from system.goal_manager import GoalManager
+from system.improver import Improver
+from system.memory import MemoryStore
+from system.model import ModelClient
+from system.planner import Planner
+from system.prompts import PromptManager
+from system.registry import AbilityRegistry
+from system.types import ClawResult, ErrorRecord, PatchRequest, TaskStatus
+from system.core import error_streak
+from system.verifier import Verifier
 
 
 class ClawEngine:
-    def __init__(self, config: Dict[str, Any], storage: Storage):
+    def __init__(self, config: Dict[str, Any], models: Dict[str, Any], memory: MemoryStore):
         self.config = config
-        self.storage = storage
-        self.model = ModelClient(config["models_file"])
+        self.memory = memory
+        self.model = ModelClient(models)
+        self.prompts = PromptManager(config, memory)
+        self.registry = AbilityRegistry(config, memory)
         self.planner = Planner()
-        self.executor = Executor(config)
-        self.evaluator = Evaluator(config)
+        self.executor = Executor(config, self.registry)
+        self.evaluator = Evaluator()
+        self.verifier = Verifier()
         self.improver = Improver(config)
-        self.prompts = PromptManager(storage, config)
-        self.registry = AbilityRegistry(storage, config)
+        self.goal_manager = GoalManager()
 
-    def run(self, claw_input: ClawInput) -> ClawOutput:
-        state = claw_input.state
-        goal = claw_input.goal
-        session_id = state.session_id
-        errors: List[ErrorMemoryEntry] = list(claw_input.error_memory)
-        step_records: List[StepRecord] = []
-        patch_requests: List[Dict[str, Any]] = []
-        same_error_count: Dict[str, int] = {}
+    def run(self, state: Dict[str, Any], carry_context: Dict[str, Any]) -> ClawResult:
+        controls = self.config["controls"]
+        goal = state["original_goal"]
+        tried_methods: List[str] = [e.get("failed_method", "") for e in self.memory.load_error_memory()]
+        patch_requests: List[PatchRequest] = []
+        step_chain: List[str] = carry_context.get("step_chain", [])
 
-        while state.step_count < state.max_steps:
-            plan = self.planner.next_action(goal, state.planned_steps, state.step_count, [asdict(e) for e in errors])
-            prompt = self.prompts.load_prompt()
-            model_response = self.model.generate(prompt, {"goal": goal, "plan": plan})
+        goal_state = self.memory.load_goal_state() or self.goal_manager.initialize(goal)
+        self.memory.save_goal_state(goal_state)
 
-            action = plan["action"]
-            result = self.executor.execute(action, claw_input.context)
-            state.command_history.append(action)
+        for _ in range(controls["max_steps"]):
+            step = state["step_count"] + 1
+            action = self.planner.next_action(goal, step, tried_methods, step_chain)
+            state["step_count"] = step
 
-            evaluation = self.evaluator.evaluate(
-                goal=goal,
-                action=action,
-                output=result,
-                planned_steps=state.planned_steps,
-                round_index=state.step_count,
-                error_memory=[asdict(e) for e in errors],
-            )
+            model_note = self.model.generate(self.prompts.load("system_prompt"), {"goal": goal, "step": step})
+            t0 = perf_counter()
+            execution = self.executor.run(action)
+            duration = perf_counter() - t0
+            planned_ok = len(step_chain) > 0
+            verifier_result = self.verifier.verify(goal, execution)
+            evaluation = self.evaluator.evaluate(goal, action.__dict__, execution, planned_ok, verifier_result)
 
-            improvement_request = None
-            if not evaluation["success"]:
-                err_type = ErrorType.COMMAND if result.get("type") == "command" else ErrorType.OTHER
-                method = action
-                err = ErrorMemoryEntry(
-                    method=method,
-                    reason=evaluation["reason"],
-                    error_type=err_type,
-                    related_output=result.get("output", ""),
-                    round_index=state.step_count,
+            error_record = None
+            if not evaluation.success:
+                error_record = ErrorRecord(
+                    failed_method=action.name,
+                    failed_reason=evaluation.reason,
+                    error_type=execution.get("error_type", "EvaluationError"),
+                    related_output=execution.get("output", ""),
+                    round_index=step,
+                    timestamp=datetime.utcnow().isoformat() + "Z",
                 )
-                errors.append(err)
-                key = f"{err.error_type}:{err.reason}"
-                same_error_count[key] = same_error_count.get(key, 0) + 1
+                tried_methods.append(error_record.failed_method)
+                self.memory.add_error_memory(error_record.__dict__)
+                goal_state = self.goal_manager.touch(goal_state, blocker=evaluation.reason, last_failure=evaluation.reason, next_action="replan")
+                self.memory.save_goal_state(goal_state)
 
-                capability_gap = self.improver.detect_capability_gap(evaluation, result)
-                improvement_request = self.improver.suggest_improvement(goal, state.step_count, capability_gap, len(patch_requests))
-                if improvement_request["type"] == "self_patch_request":
-                    patch_requests.append(improvement_request["patch"])
-                elif improvement_request["type"] == "prompt_update":
-                    self.prompts.update_prompt(
-                        self.prompts.load_prompt() + "\n- Keep stronger alignment with original goal.",
-                        reason=improvement_request["reason"],
-                    )
-                elif capability_gap:
-                    temp_req = self.improver.build_temp_code_request(goal)
-                    temp_result = self.executor.execute(temp_req["action"], claw_input.context)
-                    result["output"] += f"\n[capability-extension] {temp_result.get('output', '')}"
+            improvement = self.improver.improvement_note(evaluation.reason, tried_methods)
+            if error_record and self.improver.classify_capacity_gap(error_record.failed_reason):
+                patch_requests.append(self.improver.propose_patch_request(error_record.failed_reason))
 
-                if same_error_count[key] >= self.config["limits"]["max_same_error_repeats"]:
-                    state.status = TaskStatus.BLOCKED
-                    break
-
-            step_record = StepRecord(
-                round_index=state.step_count,
-                goal=goal,
-                action=action,
-                result=result.get("output", ""),
-                evaluation=evaluation,
-                errors=[errors[-1]] if (errors and not evaluation["success"]) else [],
-                improvement_request=improvement_request,
-            )
-            step_records.append(step_record)
-            self.storage.log_round(session_id, asdict(step_record))
-            self.storage.debug_round(
-                session_id,
+            self.memory.log_run(
                 {
-                    "plan": plan,
-                    "model_response": model_response,
-                    "raw_result": result,
-                    "evaluation": evaluation,
-                },
+                    "type": "round",
+                    "session_id": state["session_id"],
+                    "goal": goal,
+                    "action": action.__dict__,
+                    "result": execution,
+                    "evaluation": evaluation.__dict__,
+                    "verifier": verifier_result,
+                    "error": error_record.__dict__ if error_record else None,
+                    "improvement_request": improvement,
+                    "patch_applied": False,
+                    "restart_info": {"restart_count": state["restart_count"]},
+                }
+            )
+            self.memory.log_debug(
+                {
+                    "model_note": model_note,
+                    "step_chain": step_chain,
+                    "tried_methods": tried_methods[-10:],
+                    "error_streak": error_streak(self.memory.load_error_memory()),
+                    "goal_state": goal_state,
+                }
             )
 
-            state.history_actions.append({"round": state.step_count, "action": action, "ok": result.get("ok", False)})
-            state.last_result = result.get("output", "")
-            state.step_count += 1
+            self.registry.update_stats(action.name, execution.get("ok", False), duration, evaluation.reason if not evaluation.success else "")
+            retired = self.registry.retire_low_quality()
+            if retired:
+                self.memory.log_run({"type": "ability_retire", "retired": retired})
 
-            if evaluation["success"]:
-                state.status = TaskStatus.SUCCESS
-                break
+            state["history_actions"].append(
+                {
+                    "round": step,
+                    "action": action.__dict__,
+                    "result": execution,
+                    "evaluation": evaluation.__dict__,
+                    "verifier": verifier_result,
+                }
+            )
+            state["last_result"] = execution.get("output", "")
+            state["current_status"] = TaskStatus.RUNNING.value
+            self.memory.save_state(state)
 
-            if len(errors) >= self.config["limits"]["max_fail_attempts_per_task"]:
-                state.status = TaskStatus.RESTART_REQUIRED
-                break
+            if evaluation.success:
+                goal_state = self.goal_manager.mark_done(goal_state, "g2", "已完成执行与验证")
+                self.memory.save_goal_state(goal_state)
+                return ClawResult(
+                    status=TaskStatus.SUCCESS,
+                    message="任务成功",
+                    rounds=step,
+                    patch_requests=patch_requests,
+                    carried_context={"step_chain": step_chain},
+                    final_output=execution.get("output", ""),
+                )
 
-            if len(patch_requests) >= self.config["limits"]["max_patch_per_task"]:
-                state.status = TaskStatus.RESTART_REQUIRED
-                break
+            if error_streak(self.memory.load_error_memory()) >= controls["max_same_error_streak"]:
+                return ClawResult(
+                    status=TaskStatus.NEED_RESTART,
+                    message="重复同类错误过多，需要重启",
+                    rounds=step,
+                    patch_requests=patch_requests,
+                    carried_context=self._carry_context(state),
+                )
 
-        if state.status == TaskStatus.RUNNING:
-            state.status = TaskStatus.FAILURE
+            if len(tried_methods) >= controls["max_failed_attempts"]:
+                return ClawResult(
+                    status=TaskStatus.FAILURE,
+                    message="失败尝试次数超过限制",
+                    rounds=step,
+                    patch_requests=patch_requests,
+                    carried_context=self._carry_context(state),
+                )
 
-        restart_payload = None
-        if state.status == TaskStatus.RESTART_REQUIRED:
-            restart_payload = {
-                "goal": goal,
-                "commands": state.command_history,
-                "steps": state.planned_steps,
-                "context": claw_input.context,
-                "error_memory": [asdict(e) for e in errors],
-            }
+            if len(patch_requests) >= controls["max_patch_attempts"]:
+                return ClawResult(
+                    status=TaskStatus.BLOCKED,
+                    message="补丁请求次数超过限制",
+                    rounds=step,
+                    patch_requests=patch_requests,
+                    carried_context=self._carry_context(state),
+                )
 
-        return ClawOutput(
-            status=state.status,
-            state=state,
-            steps=step_records,
+        return ClawResult(
+            status=TaskStatus.NEED_RESTART,
+            message="达到最大步数，需要重启",
+            rounds=state["step_count"],
             patch_requests=patch_requests,
-            error_memory=errors,
-            restart_payload=restart_payload,
+            carried_context=self._carry_context(state),
         )
+
+    def _carry_context(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "goal": state["goal"],
+            "commands": [h["action"] for h in state.get("history_actions", [])],
+            "steps": [h["round"] for h in state.get("history_actions", [])],
+            "context": state.get("history_actions", []),
+            "error_memory": self.memory.load_error_memory(),
+            "step_chain": [
+                f"round={h['round']} action={h['action'].get('name')}"
+                for h in state.get("history_actions", [])
+            ],
+        }
